@@ -1,0 +1,288 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Resources": {
+    "PunchinDbAutoScaleGroup": {
+      "Type": "AWS::AutoScaling::AutoScalingGroup",
+      "Properties": {
+        "Cooldown": "300",
+        "DesiredCapacity": "0",
+        "HealthCheckGracePeriod": "300",
+        "HealthCheckType": "EC2",
+        "MaxSize": "0",
+        "MinSize": "0",
+        "VPCZoneIdentifier": [{"Ref": "PublicSubnet"}],
+        "LaunchConfigurationName": {
+          "Ref": "PunchinDbLaunchConfiguration"
+        },
+        "Tags": [
+          {
+            "Key": "source",
+            "Value": "punchinDb autoscale",
+            "PropagateAtLaunch": true
+          }
+        ],
+        "TerminationPolicies": [
+          "Default"
+        ]
+      }
+    },
+    "PunchinDbLaunchConfiguration": {
+      "Type": "AWS::AutoScaling::LaunchConfiguration",
+      "Properties": {
+        "AssociatePublicIpAddress" : true,
+        "ImageId": {"Ref": "UbuntuAmiId"},
+        "InstanceType": "t2.micro",
+        "KeyName": {
+          "Ref": "SshKeyPairName"
+        },
+        "SecurityGroups": [{"Ref": "TestingDbSecurityGroup"}],
+        "UserData"       : { "Fn::Base64" : { "Fn::Join" : ["", [
+            "#!/usr/bin/env bash\n",
+            "# Install and Configure Postgres\n",
+            "echo \"deb http://apt.postgresql.org/pub/repos/apt/ trusty-pgdg main\" > ",
+            "    /etc/apt/sources.list.d/pgdg.list\n",
+            "wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -\n",
+            "apt-get update\n",
+            "apt-get install awscli postgresql-9.4 postgresql-contrib  -y\n",
+            "# open communication to the world\n",
+            "echo \"listen_addresses='*'\" >> /etc/postgresql/9.4/main/postgresql.conf\n",
+            "# allow password protected connections from external hosts\n",
+            "# ****** you should change this to your IP or office CIDR *****\n",
+            "echo \"host all all 0.0.0.0/0 md5\" >> /etc/postgresql/9.4/main/pg_hba.conf\n",
+            "# enable the admin extention pack\n",
+            "sudo -u postgres psql --command=\"CREATE EXTENSION adminpack;\"\n",
+            "# Set the postgres user's password\n",
+            "sudo -u postgres psql --command=\"ALTER ROLE postgres WITH PASSWORD '",{"Ref": "PostgresUserPassword"},"';\"\n",
+            "# restart postgres\n",
+            "invoke-rc.d postgresql restart\n"
+         ]]}},
+        "BlockDeviceMappings": [
+          {
+            "DeviceName": "/dev/sda1",
+            "Ebs": {
+              "VolumeSize": 8
+            }
+          }
+        ]
+      }
+    },
+    "scheduledlightsON": {
+      "Type": "AWS::AutoScaling::ScheduledAction",
+      "Properties": {
+        "MaxSize": "1",
+        "MinSize": "1",
+        "Recurrence": "0 13 * * *",
+        "AutoScalingGroupName": {
+          "Ref": "PunchinDbAutoScaleGroup"
+        }
+      }
+    },
+    "scheduledlightsOUT": {
+      "Type": "AWS::AutoScaling::ScheduledAction",
+      "Properties": {
+        "MaxSize": "0",
+        "MinSize": "0",
+        "Recurrence": "0 5 * * *",
+        "AutoScalingGroupName": {
+          "Ref": "PunchinDbAutoScaleGroup"
+        }
+      }
+    },
+    "PunchinDbVPC": {
+      "Type": "AWS::EC2::VPC",
+      "Properties": {
+        "CidrBlock": "10.0.0.0/16",
+        "InstanceTenancy": "default",
+        "EnableDnsSupport": "true",
+        "EnableDnsHostnames": "false",
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "punchinDb"
+          }
+        ]
+      }
+    },
+    "PublicSubnet": {
+      "Type": "AWS::EC2::Subnet",
+      "Properties": {
+        "CidrBlock": "10.0.1.0/24",
+        "VpcId": {
+          "Ref": "PunchinDbVPC"
+        }
+      }
+    },
+    "InternetGateway": {
+      "Type": "AWS::EC2::InternetGateway",
+      "Properties": {}
+    },
+    "VpcDhcpOptions": {
+      "Type": "AWS::EC2::DHCPOptions",
+      "Properties": {
+        "DomainName": "us-west-2.compute.internal",
+        "DomainNameServers": [
+          "AmazonProvidedDNS"
+        ]
+      }
+    },
+    "VpcAcl": {
+      "Type": "AWS::EC2::NetworkAcl",
+      "Properties": {
+        "VpcId": {
+          "Ref": "PunchinDbVPC"
+        }
+      }
+    },
+    "InternetRouteTable": {
+      "Type": "AWS::EC2::RouteTable",
+      "Properties": {
+        "VpcId": {
+          "Ref": "PunchinDbVPC"
+        }
+      }
+    },
+    "TestingDbSecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "The db scale test security group",
+        "VpcId": {
+          "Ref": "PunchinDbVPC"
+        }
+      }
+    },
+    "VpcAclEgressRule0": {
+      "Type": "AWS::EC2::NetworkAclEntry",
+      "Properties": {
+        "CidrBlock": "0.0.0.0/0",
+        "Egress": "true",
+        "Protocol": "-1",
+        "RuleAction": "allow",
+        "RuleNumber": "100",
+        "NetworkAclId": {
+          "Ref": "VpcAcl"
+        }
+      }
+    },
+    "VpcAclIngressRule0": {
+      "Type": "AWS::EC2::NetworkAclEntry",
+      "Properties": {
+        "CidrBlock": "0.0.0.0/0",
+        "Protocol": "-1",
+        "RuleAction": "allow",
+        "RuleNumber": "100",
+        "NetworkAclId": {
+          "Ref": "VpcAcl"
+        }
+      }
+    },
+    "AclAssociation": {
+      "Type": "AWS::EC2::SubnetNetworkAclAssociation",
+      "Properties": {
+        "NetworkAclId": {
+          "Ref": "VpcAcl"
+        },
+        "SubnetId": {
+          "Ref": "PublicSubnet"
+        }
+      }
+    },
+    "GatewayAttachment": {
+      "Type": "AWS::EC2::VPCGatewayAttachment",
+      "Properties": {
+        "VpcId": {
+          "Ref": "PunchinDbVPC"
+        },
+        "InternetGatewayId": {
+          "Ref": "InternetGateway"
+        }
+      }
+    },
+    "InternetRouteTableAssociation": {
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+      "Properties": {
+        "RouteTableId": {
+          "Ref": "InternetRouteTable"
+        },
+        "SubnetId": {
+          "Ref": "PublicSubnet"
+        }
+      }
+    },
+    "InternetRouteTableRoute0": {
+      "Type": "AWS::EC2::Route",
+      "Properties": {
+        "DestinationCidrBlock": "0.0.0.0/0",
+        "RouteTableId": {
+          "Ref": "InternetRouteTable"
+        },
+        "GatewayId": {
+          "Ref": "InternetGateway"
+        }
+      },
+      "DependsOn": "GatewayAttachment"
+    },
+    "PgsqlIngressRule": {
+      "Type": "AWS::EC2::SecurityGroupIngress",
+      "Properties": {
+        "GroupId": {
+          "Ref": "TestingDbSecurityGroup"
+        },
+        "IpProtocol": "tcp",
+        "FromPort": "5432",
+        "ToPort": "5432",
+        "CidrIp": "0.0.0.0/0"
+      }
+    },
+    "SshIngressRule": {
+      "Type": "AWS::EC2::SecurityGroupIngress",
+      "Properties": {
+        "GroupId": {
+          "Ref": "TestingDbSecurityGroup"
+        },
+        "IpProtocol": "tcp",
+        "FromPort": "22",
+        "ToPort": "22",
+        "CidrIp": "0.0.0.0/0"
+      }
+    },
+    "egressAllowAllRule": {
+      "Type": "AWS::EC2::SecurityGroupEgress",
+      "Properties": {
+        "GroupId": {
+          "Ref": "TestingDbSecurityGroup"
+        },
+        "IpProtocol": "-1",
+        "CidrIp": "0.0.0.0/0"
+      }
+    }
+  },
+
+  "Description": "Lights On/Off testing Db instances",
+  "Parameters" : {
+    "PostgresUserPassword" : {
+      "Description" : "Postgres User Password. Note, this is not a secure way to get a passord set. Do not use for db's with real data",
+      "Type" : "String",
+      "Default" : ""
+    },
+    "SshKeyPairName": {
+      "Description": "Name of the SSH key pair to install on launched instances",
+      "Type": "String",
+      "Default": ""
+    },
+    "LightsOnTimeInCronTabForm": {
+      "Description": "The Lights On Schedule in CronTab form. (This is UTC so adjust for your timezone)",
+      "Type": "String",
+      "Default": "0 13 * * *"
+    },
+    "LightsOutTimeInCronTabForm": {
+      "Description": "The Lights Off Schedule in CronTab form. (This is UTC so adjust for your timezone)",
+      "Type": "String",
+      "Default": "0 5 * * *"
+    },
+    "UbuntuAmiId": {
+      "Description": "The id for the Ubuntu AMI in your AWS Region. Default is us-west-2 (Oregon)",
+      "Type": "String",
+      "Default": "ami-5189a661"
+    }
+  }
+}
