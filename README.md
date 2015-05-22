@@ -20,7 +20,7 @@ You would run the template to create the stack only once, then allow the ASG sch
 Note if you create the stack in the *Off Hours* time span, you will not see an EC2 instance start until the time enters the 
 *On Hours* time span.
 
-Here is the Template in its entirety is at `/aws-scheduled-scaling/cf-templates/db-scheduled-scaling.json`
+Here is the Template in its entirety is [here](https://github.com/samkeen/aws-scheduled-scaling/blob/master/cf-templates/db-scheduled-scaling.json)
 
 Scheduled Scaling is not exposed all that much in the AWS console so it can be difficult to determine if it is
 active and what it is set to in the while in the Console.  You can list all your Scheduled Scaling actions using the AWS CLI 
