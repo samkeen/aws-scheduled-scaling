@@ -260,6 +260,7 @@
   "Description": "Lights On/Off testing Db instances",
   "Parameters" : {
     "PostgresUserPassword" : {
+      "NoEcho" : true,
       "Description" : "Postgres User Password. Note, this is not a secure way to get a passord set. Do not use for db's with real data",
       "Type" : "String",
       "Default" : ""
